@@ -105,6 +105,42 @@ export interface AppBackupPayload {
   notes: LectureNote[];
 }
 
+export interface StudyDayActivity {
+  dateStr: string; // YYYY-MM-DD
+  count: number; // Number of interaction records
+  watchTimeSec: number; // Estimated watch time
+  level: 0 | 1 | 2 | 3 | 4; // 0 = empty, 1-4 intensity for heatmap
+}
+
+export interface StudyStreakInfo {
+  currentStreakDays: number;
+  longestStreakDays: number;
+  totalActiveDays: number;
+  lastActiveDateStr: string | null;
+  peakDayOfWeek: string;
+  peakHourRange: string;
+}
+
+export interface FolderNodeStats {
+  totalLectures: number;
+  completedLectures: number;
+  inProgressLectures: number;
+  notStartedLectures: number;
+  totalDurationSec: number;
+  remainingDurationSec: number;
+  completionPercentage: number;
+}
+
+export interface FolderTreeNode {
+  id: string; // Relative directory path, e.g. "Chapter 1/Part A" or "root"
+  name: string; // Folder name, e.g. "Part A"
+  fullPath: string;
+  depth: number;
+  lectures: Lecture[]; // Direct lectures in this folder
+  children: FolderTreeNode[]; // Nested subfolders
+  stats: FolderNodeStats;
+}
+
 export interface OverallAnalytics {
   totalWatchTimeSec: number;
   totalSizeBytes: number;
@@ -119,6 +155,10 @@ export interface OverallAnalytics {
   velocityLecturesPerWeek: number;
   projectedCompletionDays: number | null;
   formatBreakdown: Record<string, number>;
+  totalDurationSec: number;
+  totalRemainingSec: number;
+  streakInfo?: StudyStreakInfo;
+  activityHistory?: StudyDayActivity[];
 }
 
 export const SUPPORTED_VIDEO_EXTENSIONS = [

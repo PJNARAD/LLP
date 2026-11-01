@@ -21,11 +21,15 @@ import {
   Bookmark,
   FolderOpen,
   X,
-  FileCode,
-  Folder
+  Folder,
+  FolderTree,
+  ChevronDown,
+  ChevronRight
 } from 'lucide-react';
 import { DiagnosticsModal } from './DiagnosticsModal';
 import { sessionFileStore } from '../scanner/fileStore';
+import { FolderTreeView } from './FolderTreeView';
+import { buildFolderTree } from '../utils/treeBuilder';
 
 export const CourseView: React.FC = () => {
   const {
@@ -48,7 +52,8 @@ export const CourseView: React.FC = () => {
   >('all');
   const [formatFilter, setFormatFilter] = useState<string>('all');
   const [sortOption, setSortOption] = useState<LectureSortOption>('default');
-  const [viewGrouping, setViewGrouping] = useState<'module' | 'flat'>('module');
+  const [viewGrouping, setViewGrouping] = useState<'tree' | 'module' | 'flat'>('tree');
+  const [collapsedModules, setCollapsedModules] = useState<Set<string>>(new Set());
   const [isDiagnosticOpen, setIsDiagnosticOpen] = useState(false);
   const [statusFeedback, setStatusFeedback] = useState<string | null>(null);
   const [isUpgrading, setIsUpgrading] = useState(false);
@@ -145,7 +150,7 @@ export const CourseView: React.FC = () => {
 
   // Group by Module / Subfolder
   const groupedModules = useMemo(() => {
-    if (viewGrouping === 'flat') return null;
+    if (viewGrouping !== 'module') return null;
 
     const groups: Record<string, Lecture[]> = {};
     for (const lec of filteredAndSortedLectures) {
@@ -161,6 +166,23 @@ export const CourseView: React.FC = () => {
       a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })
     );
   }, [filteredAndSortedLectures, viewGrouping]);
+
+  // Hierarchical Folder Tree
+  const folderTree = useMemo(() => {
+    return buildFolderTree(filteredAndSortedLectures, progressMap);
+  }, [filteredAndSortedLectures, progressMap]);
+
+  const toggleModuleCollapse = (moduleName: string) => {
+    setCollapsedModules((prev) => {
+      const next = new Set(prev);
+      if (next.has(moduleName)) {
+        next.delete(moduleName);
+      } else {
+        next.add(moduleName);
+      }
+      return next;
+    });
+  };
 
   const handleRescan = async () => {
     setStatusFeedback('Rescanning directory...');
@@ -411,8 +433,19 @@ export const CourseView: React.FC = () => {
               </select>
             </div>
 
-            {/* Grouping Toggle */}
+            {/* Grouping Toggle (Tree, Module, Flat) */}
             <div className="flex items-center space-x-1 bg-slate-950 border border-slate-800 p-1 rounded-xl">
+              <button
+                onClick={() => setViewGrouping('tree')}
+                className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                  viewGrouping === 'tree'
+                    ? 'bg-slate-800 text-indigo-400 shadow-xs'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+                title="Folder Tree Hierarchy"
+              >
+                <FolderTree className="w-3.5 h-3.5" />
+              </button>
               <button
                 onClick={() => setViewGrouping('module')}
                 className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
@@ -420,7 +453,7 @@ export const CourseView: React.FC = () => {
                     ? 'bg-slate-800 text-white shadow-xs'
                     : 'text-slate-400 hover:text-slate-200'
                 }`}
-                title="Group by subfolder / module"
+                title="Group by subfolder / module cards"
               >
                 <Layers className="w-3.5 h-3.5" />
               </button>
@@ -568,25 +601,75 @@ export const CourseView: React.FC = () => {
             <p className="font-semibold text-slate-200">No matching lectures found</p>
             <p className="text-xs text-slate-500 mt-1">Try adjusting your search query, sort, or format filters.</p>
           </div>
+        ) : viewGrouping === 'tree' ? (
+          // Hierarchical Folder Tree View (Feature 3)
+          <FolderTreeView
+            rootNode={folderTree}
+            progressMap={progressMap}
+            onSelectLecture={selectLecture}
+            onOpenNotes={openNotesDrawer}
+          />
         ) : groupedModules ? (
-          // Grouped by Module
-          groupedModules.map(([moduleName, moduleLectures]) => (
-            <div key={moduleName} className="bg-slate-900/70 border border-slate-800/80 rounded-3xl overflow-hidden shadow-xs">
-              <div className="px-5 py-3.5 bg-slate-950/80 border-b border-slate-800/80 flex items-center justify-between text-xs">
-                <div className="flex items-center space-x-2 font-semibold text-slate-200">
-                  <Folder className="w-3.5 h-3.5 text-indigo-400" />
-                  <span className="font-mono text-xs">{moduleName}</span>
-                </div>
-                <span className="text-slate-400 font-mono text-[11px]">
-                  {moduleLectures.length} lecture{moduleLectures.length === 1 ? '' : 's'}
-                </span>
-              </div>
+          // Grouped by Module with Collapsible sections & Module Progress
+          groupedModules.map(([moduleName, moduleLectures]) => {
+            const isCollapsed = collapsedModules.has(moduleName);
+            const completedCount = moduleLectures.filter((l) => progressMap.get(l.id)?.completed).length;
+            const pct = Math.round((completedCount / moduleLectures.length) * 100);
+            const remainingSec = moduleLectures.reduce((acc, l) => {
+              const p = progressMap.get(l.id);
+              return acc + (l.durationSec ? Math.max(0, l.durationSec - (p?.positionSec || 0)) : 0);
+            }, 0);
 
-              <div className="divide-y divide-slate-800/60">
-                {moduleLectures.map((lec) => renderLectureRow(lec))}
+            return (
+              <div key={moduleName} className="bg-slate-900/70 border border-slate-800/80 rounded-3xl overflow-hidden shadow-xs">
+                <div
+                  onClick={() => toggleModuleCollapse(moduleName)}
+                  className="px-5 py-3.5 bg-slate-950/80 hover:bg-slate-900 border-b border-slate-800/80 flex items-center justify-between text-xs cursor-pointer select-none transition-colors"
+                >
+                  <div className="flex items-center space-x-2.5 font-semibold text-slate-200 min-w-0">
+                    <button type="button" className="text-slate-400">
+                      {isCollapsed ? (
+                        <ChevronRight className="w-4 h-4 text-slate-500" />
+                      ) : (
+                        <ChevronDown className="w-4 h-4 text-indigo-400" />
+                      )}
+                    </button>
+                    <Folder className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                    <span className="font-mono text-xs truncate">{moduleName}</span>
+                    <span className="text-slate-500 font-mono text-[11px] hidden sm:inline">
+                      ({moduleLectures.length} {moduleLectures.length === 1 ? 'lecture' : 'lectures'})
+                    </span>
+                  </div>
+
+                  <div className="flex items-center space-x-3 shrink-0 font-mono text-[11px]">
+                    <div className="flex items-center space-x-2">
+                      <div className="w-16 sm:w-24 bg-slate-950 h-1.5 rounded-full overflow-hidden border border-slate-800">
+                        <div
+                          className="bg-emerald-500 h-full rounded-full transition-all"
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                      <span className="text-emerald-400 font-medium">
+                        {completedCount}/{moduleLectures.length} ({pct}%)
+                      </span>
+                    </div>
+
+                    {remainingSec > 0 && (
+                      <span className="text-slate-400 hidden md:inline">
+                        {formatDuration(remainingSec)} left
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {!isCollapsed && (
+                  <div className="divide-y divide-slate-800/60">
+                    {moduleLectures.map((lec) => renderLectureRow(lec))}
+                  </div>
+                )}
               </div>
-            </div>
-          ))
+            );
+          })
         ) : (
           // Flat list
           <div className="bg-slate-900/70 border border-slate-800/80 rounded-3xl overflow-hidden shadow-xs divide-y divide-slate-800/60">

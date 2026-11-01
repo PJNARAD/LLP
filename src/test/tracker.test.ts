@@ -574,4 +574,162 @@ describe('Phase 12C — Progress Integrity (Must Pass)', () => {
     );
     expect(resolved).toBe(fakeFile);
   });
+
+  it('buildFolderTree builds multi-level hierarchy with accurate aggregate folder metrics', async () => {
+    const { buildFolderTree } = await import('../utils/treeBuilder');
+
+    const courseId = 'course_tree_test';
+    const mockLectures: Lecture[] = [
+      {
+        id: 'lec_1',
+        courseId,
+        name: '01_intro.mp4',
+        relativePath: 'Chapter 1/Part A/01_intro.mp4',
+        size: 1024,
+        lastModified: Date.now(),
+        ext: 'mp4',
+        durationSec: 1000,
+        supportState: 'supported'
+      },
+      {
+        id: 'lec_2',
+        courseId,
+        name: '02_basics.mp4',
+        relativePath: 'Chapter 1/Part A/02_basics.mp4',
+        size: 2048,
+        lastModified: Date.now(),
+        ext: 'mp4',
+        durationSec: 2000,
+        supportState: 'supported'
+      },
+      {
+        id: 'lec_3',
+        courseId,
+        name: '03_advanced.mp4',
+        relativePath: 'Chapter 2/03_advanced.mp4',
+        size: 4096,
+        lastModified: Date.now(),
+        ext: 'mp4',
+        durationSec: 3000,
+        supportState: 'supported'
+      },
+      {
+        id: 'lec_4',
+        courseId,
+        name: 'overview.mp4',
+        relativePath: 'overview.mp4',
+        size: 512,
+        lastModified: Date.now(),
+        ext: 'mp4',
+        durationSec: 500,
+        supportState: 'supported'
+      }
+    ];
+
+    const progressMap = new Map<string, Progress>();
+    // Mark lec_1 as completed
+    progressMap.set('lec_1', {
+      courseId,
+      lectureId: 'lec_1',
+      positionSec: 1000,
+      durationSec: 1000,
+      completed: true,
+      updatedAt: Date.now()
+    });
+    // Mark lec_2 as in progress (500s watched)
+    progressMap.set('lec_2', {
+      courseId,
+      lectureId: 'lec_2',
+      positionSec: 500,
+      durationSec: 2000,
+      completed: false,
+      updatedAt: Date.now()
+    });
+
+    const tree = buildFolderTree(mockLectures, progressMap);
+
+    // Root node
+    expect(tree.id).toBe('root');
+    expect(tree.stats.totalLectures).toBe(4);
+    expect(tree.stats.completedLectures).toBe(1);
+    expect(tree.stats.inProgressLectures).toBe(1);
+    expect(tree.stats.notStartedLectures).toBe(2);
+    expect(tree.stats.totalDurationSec).toBe(6500); // 1000 + 2000 + 3000 + 500
+    // Remaining = (0 from lec_1) + (1500 from lec_2) + (3000 from lec_3) + (500 from lec_4) = 5000
+    expect(tree.stats.remainingDurationSec).toBe(5000);
+    expect(tree.stats.completionPercentage).toBe(25); // 1 / 4 = 25%
+
+    // Root direct lectures (overview.mp4)
+    expect(tree.lectures.length).toBe(1);
+    expect(tree.lectures[0].name).toBe('overview.mp4');
+
+    // Children folders (Chapter 1 and Chapter 2)
+    expect(tree.children.length).toBe(2);
+    const ch1 = tree.children.find((c) => c.name === 'Chapter 1')!;
+    expect(ch1).toBeDefined();
+    expect(ch1.children.length).toBe(1); // Part A
+    const partA = ch1.children[0];
+    expect(partA.name).toBe('Part A');
+    expect(partA.lectures.length).toBe(2);
+    expect(ch1.stats.totalLectures).toBe(2);
+    expect(ch1.stats.completedLectures).toBe(1);
+    expect(ch1.stats.completionPercentage).toBe(50);
+  });
+
+  it('computeStudyStreakAndActivity computes streaks, active days, and heatmap metrics accurately', async () => {
+    const { computeStudyStreakAndActivity } = await import('../utils/streakCalculator');
+
+    const baseMs = new Date('2026-10-31T12:00:00Z').getTime();
+    const dayMs = 86400 * 1000;
+
+    const mockProgress: Progress[] = [
+      // Today (Oct 31)
+      {
+        courseId: 'c1',
+        lectureId: 'l1',
+        positionSec: 1200,
+        completed: true,
+        updatedAt: baseMs
+      },
+      // Yesterday (Oct 30)
+      {
+        courseId: 'c1',
+        lectureId: 'l2',
+        positionSec: 1800,
+        completed: true,
+        updatedAt: baseMs - dayMs
+      },
+      // 2 days ago (Oct 29)
+      {
+        courseId: 'c1',
+        lectureId: 'l3',
+        positionSec: 900,
+        completed: false,
+        updatedAt: baseMs - 2 * dayMs
+      },
+      // Gap: 5 days ago (Oct 26)
+      {
+        courseId: 'c1',
+        lectureId: 'l4',
+        positionSec: 3600,
+        completed: true,
+        updatedAt: baseMs - 5 * dayMs
+      }
+    ];
+
+    const result = computeStudyStreakAndActivity(mockProgress, baseMs);
+
+    expect(result.streakInfo.currentStreakDays).toBe(3); // Oct 29, 30, 31
+    expect(result.streakInfo.longestStreakDays).toBe(3);
+    expect(result.streakInfo.totalActiveDays).toBe(4); // 4 distinct dates
+    expect(result.activityHistory.length).toBe(91); // 13 full weeks
+
+    // Today's cell should have activity
+    const todayCell = result.activityHistory.find((a) => a.dateStr === '2026-10-31');
+    expect(todayCell).toBeDefined();
+    expect(todayCell!.count).toBe(1);
+    expect(todayCell!.watchTimeSec).toBe(1200);
+    expect(todayCell!.level).toBeGreaterThan(0);
+  });
 });
+

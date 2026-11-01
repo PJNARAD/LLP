@@ -25,6 +25,7 @@ import { db } from '../db/indexedDB';
 import { lockCourseScan, unlockCourseScan, reconcileScannedLectures } from '../scanner/rescan';
 import { scanDirectoryHandle } from '../scanner/scanner';
 import { pickNativeDirectory, verifyHandlePermission } from '../scanner/fsAdapter';
+import { computeStudyStreakAndActivity } from '../utils/streakCalculator';
 
 export type AppView = 'dashboard' | 'library' | 'course' | 'player';
 
@@ -678,6 +679,9 @@ export const CourseProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       }
     }
 
+    let totalDurationSec = 0;
+    let totalRemainingSec = 0;
+
     for (const lec of allLecturesGlobal) {
       totalSizeBytes += lec.size || 0;
       const fmt = (lec.ext || 'unknown').toLowerCase();
@@ -695,6 +699,12 @@ export const CourseProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       } else {
         notStartedLectures++;
       }
+
+      if (lec.durationSec) {
+        totalDurationSec += lec.durationSec;
+        const pos = p ? p.positionSec : 0;
+        totalRemainingSec += Math.max(0, lec.durationSec - pos);
+      }
     }
 
     const totalLectures = allLecturesGlobal.length;
@@ -706,6 +716,8 @@ export const CourseProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         : null;
 
     const overallCompletionPct = totalLectures > 0 ? Math.round((completedLectures / totalLectures) * 100) : 0;
+
+    const { streakInfo, activityHistory } = computeStudyStreakAndActivity(allProgress, now);
 
     return {
       totalWatchTimeSec,
@@ -720,7 +732,11 @@ export const CourseProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       recentActivityCount7d,
       velocityLecturesPerWeek,
       projectedCompletionDays,
-      formatBreakdown
+      formatBreakdown,
+      totalDurationSec,
+      totalRemainingSec,
+      streakInfo,
+      activityHistory
     };
   }, [allProgress, allLecturesGlobal, courses]);
 
