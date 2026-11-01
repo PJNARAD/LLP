@@ -1,0 +1,6 @@
+{
+  "name": "Local Lecture Progress Tracker",
+  "description": "A privacy-first, fully local browser-based video lecture tracker with recursive folder scanning, persistent progress tracking, and multi-course management.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
